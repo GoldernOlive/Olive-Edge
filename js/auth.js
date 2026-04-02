@@ -25,6 +25,7 @@ var NAV_ITEMS=[
   {href:'scanner.html',label:'🔍 Scanner'},
   {href:'trends.html',label:'🎨 Trends'},
   {href:'suppliers.html',label:'💰 Suppliers'},
+  {href:'listing-generator.html',label:'✍️ Listing Writer'},
   {href:'workspace.html',label:'📋 Workspace'}
 ];
 
