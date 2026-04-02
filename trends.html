@@ -1,3 +1,4 @@
+<!-- TRENDS PAGE -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,220 +16,60 @@
   </div>
   <div class="card fu" style="display:flex;gap:10px;flex-wrap:wrap">
     <input id="tr-kw" placeholder="Enter niche e.g. wall art, custom mug, tote bag..." style="flex:1" onkeydown="if(event.key==='Enter')doTrends()"/>
-    <button class="btn-olive" onclick="doTrends()">Analyse Trends</button>
+    <button class="btn-olive" onclick="doTrends()">Analyse Trends →</button>
     <button class="btn-ghost" onclick="doGlobalTrends()">🌍 Global Etsy Trends</button>
   </div>
   <div id="tr-res"></div>
 </div>
-<script src="js/auth.js"></script>
+<script src="js/auth.js?v=2"></script>
 <script>
 requireAuth();
-document.getElementById('nav-placeholder').innerHTML=renderNav('trends.html');
-
-function sbox(l,v,c){return '<div class="sbox"><div class="lbl">'+l+'</div><div class="mono" style="font-size:16px;color:'+(c||'var(--tx)')+';font-weight:600">'+(v||'--')+'</div></div>';}
-function pbar(p,c,h){h=h||5;return '<div class="pbar" style="height:'+h+'px"><div class="pbf" style="width:'+Math.min(100,p||0)+'%;background:'+(c||'var(--gd)')+';height:'+h+'px"></div></div>';}
-
-function platformLinks(kw){
-  var k=encodeURIComponent(kw);
-  var links=[
-    {name:'Etsy UK',url:'https://www.etsy.com/uk/search?q='+k,icon:'🛍'},
-    {name:'Etsy USA',url:'https://www.etsy.com/search?q='+k,icon:'🛍'},
-    {name:'Etsy Germany',url:'https://www.etsy.com/de/search?q='+k,icon:'🛍'},
-    {name:'Etsy Australia',url:'https://www.etsy.com/au/search?q='+k,icon:'🛍'},
-    {name:'Printify',url:'https://printify.com/app/products?search='+k,icon:'🖨'},
-    {name:'Printful',url:'https://www.printful.com/uk/custom/search?q='+k,icon:'🖨'},
-    {name:'Pinterest',url:'https://www.pinterest.co.uk/search/pins/?q='+k,icon:'📌'},
-    {name:'Amazon UK',url:'https://www.amazon.co.uk/s?k='+k,icon:'📦'},
-    {name:'NOTHS',url:'https://www.notonthehighstreet.com/search?search_term='+k,icon:'🎁'}
-  ];
-  var html='<div class="card" style="margin-bottom:16px;border:2px solid var(--olbr)">';
-  html+='<div class="lbl" style="color:var(--ol)">See Real Products On Every Platform</div>';
-  html+='<p style="font-size:12px;color:var(--mu);margin-bottom:12px">Click to see what is selling for <strong>'+kw+'</strong> right now</p>';
-  html+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
-  for(var i=0;i<links.length;i++){html+='<a href="'+links[i].url+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;background:var(--w);border:1.5px solid var(--b1);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--tx);text-decoration:none;font-family:Jost,sans-serif;">'+links[i].icon+' '+links[i].name+'</a>';}
-  html+='</div></div>';return html;
+document.getElementById('nav-placeholder').innerHTML = renderNav('trends.html');
+function getKeys(){return{etsy:localStorage.getItem('oe_etsy')||'',groq:localStorage.getItem('oe_groq')||''};}
+async function callGroq(prompt){
+  const keys=getKeys();
+  const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+keys.groq},body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:[{role:'system',content:'Expert Etsy market analyst specialising in visual trends and design intelligence.'},{role:'user',content:prompt+'\n\nReturn ONLY valid raw JSON starting with { ending with }'}],temperature:0.2,max_tokens:2048})});
+  const d=await r.json();if(!r.ok)throw new Error(d.error?.message||'Error');
+  const t=d.choices?.[0]?.message?.content||'';const s=t.indexOf('{'),e=t.lastIndexOf('}');if(s<0||e<0)throw new Error('No JSON');return JSON.parse(t.slice(s,e+1));
 }
-
-async function callAI(prompt){
-  var r=await fetch('/api/groq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
-  var d=await r.json();
-  if(!r.ok)throw new Error(d.error||'Server error '+r.status);
-  return d;
+async function callEtsy(path){
+  const keys=getKeys();if(!keys.etsy)throw new Error('No Etsy key');
+  const r=await fetch('https://openapi.etsy.com/v3/application/'+path,{headers:{'x-api-key':keys.etsy}});if(!r.ok)throw new Error('Etsy '+r.status);return r.json();
 }
-
 async function doTrends(){
-  var kw=document.getElementById('tr-kw').value.trim();
-  if(!kw)return;
-  var res=document.getElementById('tr-res');
-  res.innerHTML='<div class="card"><div class="loading-row"><div class="spin"></div>Analysing visual trends for "'+kw+'" across global Etsy markets...</div></div>';
+  const kw=document.getElementById('tr-kw').value.trim();if(!kw)return;
+  const res=document.getElementById('tr-res');
+  res.innerHTML=`<div class="card"><div class="loading-row"><div class="spin"></div>Pulling live Etsy data and analysing visual trends for "${kw}"...</div></div>`;
+  let listings=[],tags=[];
+  const keys=getKeys();
+  if(keys.etsy){try{const er=await callEtsy(`listings/active?keywords=${encodeURIComponent(kw)}&limit=50&sort_on=score`);listings=er.results||[];const tm={};listings.forEach(l=>(l.tags||[]).forEach(t=>tm[t]=(tm[t]||0)+1));tags=Object.entries(tm).sort((a,b)=>b[1]-a[1]).map(e=>({tag:e[0],count:e[1]}));}catch(e){}}
+  const ctx=listings.length?`${listings.length} live listings. Titles: ${listings.slice(0,8).map(l=>'"'+l.title+'"').join(' | ')}. Tags: ${tags.slice(0,10).map(t=>t.tag).join(', ')}`:'';
   try{
-    var d=await callAI('Analyse visual design trends for Etsy niche "'+kw+'" globally across UK USA Germany Australia. What colours fonts styles phrases are actually selling? Return JSON: {"niche":"'+kw+'","winningFormula":"3 sentence specific design formula","pinterestDirection":"what Pinterest shows for this niche right now","colourPalettes":[{"name":"palette name","colours":["#hex1","#hex2","#hex3"],"popularity":70,"context":"when to use","markets":["UK","USA"]}],"topColours":[{"name":"colour","hex":"#RRGGBB","popularity":80,"where":"background or text or accent","hotMarkets":["UK","Germany"]}],"topFontStyles":[{"style":"Script","popularity":65,"mood":"elegant","examples":"Playfair Display, Great Vibes","bestFor":["mugs","prints"]}],"dominantStyles":[{"style":"Minimalist","popularity":60,"desc":"clean lines no clutter","popularIn":["UK","Germany"]}],"topPhrases":[{"phrase":"exact winning phrase","frequency":45,"emotion":"funny or sentimental or empowering","markets":["UK","USA"]}],"risingPhrases":["phrase1","phrase2"],"saturatedPhrases":["avoid1","avoid2"],"imageTypes":[{"type":"Lifestyle","popularity":70,"desc":"real person using product"}],"marketDesign":{"UK":"UK design preference","USA":"USA design preference","Germany":"Germany design preference","Australia":"Australia design preference"}}');
-
-    var html=platformLinks(kw);
-
-    html+='<div class="card-gold fu"><div class="lbl" style="color:var(--gd)">🏆 Winning Design Formula for "'+kw+'"</div>';
-    html+='<p style="font-size:15px;line-height:1.85;font-family:Cormorant Garamond,serif">'+d.winningFormula+'</p>';
-    html+='<div style="margin-top:12px;padding:12px;background:var(--p3);border-radius:8px"><div class="lbl" style="color:var(--or)">📌 Pinterest Direction</div><p style="font-size:13px;color:var(--mu)">'+(d.pinterestDirection||'')+'</p></div></div>';
-
-    if(d.colourPalettes&&d.colourPalettes.length){
-      html+='<div class="card d1"><div class="lbl" style="color:var(--ol)">🎨 Colour Palettes</div><div class="grid-auto">';
-      for(var i=0;i<d.colourPalettes.length;i++){
-        var p=d.colourPalettes[i];
-        html+='<div class="card2"><div style="display:flex;gap:6px;margin-bottom:10px">';
-        var cols=p.colours||[];
-        for(var j=0;j<cols.length;j++){html+='<div style="width:36px;height:36px;border-radius:6px;background:'+cols[j]+';border:1px solid rgba(0,0,0,.1)" title="'+cols[j]+'"></div>';}
-        html+='</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">'+p.name+'</div>';
-        html+='<div style="font-size:11px;color:var(--mu);margin-bottom:6px">'+p.context+'</div>';
-        html+=pbar(p.popularity,'var(--gd)');
-        html+='<div style="font-size:10px;color:var(--mu);margin-top:3px">'+p.popularity+'% · '+(p.markets||[]).join(', ')+'</div></div>';
-      }
-      html+='</div></div>';
-    }
-
-    html+='<div class="card d1"><div class="lbl">🎨 Top Individual Colours</div>';
-    var topCols=d.topColours||[];
-    for(var i=0;i<topCols.length;i++){
-      var c=topCols[i];
-      html+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">';
-      html+='<div style="width:42px;height:42px;border-radius:7px;background:'+(c.hex||'#ccc')+';border:1px solid rgba(0,0,0,.1);flex-shrink:0"></div>';
-      html+='<div style="flex:1"><div style="font-weight:600;font-size:14px;margin-bottom:3px">'+c.name+' <span class="mono" style="font-size:10px;color:var(--mu2)">'+(c.hex||'')+'</span> · '+c.where+'</div>';
-      html+=pbar(c.popularity,c.hex||'var(--gd)');
-      html+='<div style="font-size:10px;color:var(--mu);margin-top:2px">'+(c.hotMarkets||[]).join(', ')+'</div></div>';
-      html+='<span class="mono" style="font-size:12px;color:var(--mu)">'+(c.popularity||0)+'%</span></div>';
-    }
-    html+='</div>';
-
-    html+='<div class="grid-2 d2"><div class="card"><div class="lbl">💬 Top Selling Phrases</div>';
-    var phrases=d.topPhrases||[];
-    for(var i=0;i<phrases.length;i++){
-      var p=phrases[i];
-      html+='<div style="padding:10px 0;border-bottom:1px solid var(--b1)">';
-      html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px">';
-      html+='<span style="font-size:15px;font-style:italic;font-weight:600;color:var(--gd);font-family:Cormorant Garamond,serif">"'+p.phrase+'"</span>';
-      html+='<span class="badge b-gold">x'+(p.frequency||0)+'</span></div>';
-      html+='<div style="font-size:11px;color:var(--mu)">'+(p.emotion||'')+' · '+(p.markets||[]).join(', ')+'</div></div>';
-    }
-    if(d.risingPhrases&&d.risingPhrases.length){
-      html+='<div style="margin-top:10px"><div class="lbl" style="color:var(--ol)">⬆️ Rising Now</div>';
-      for(var i=0;i<d.risingPhrases.length;i++){html+='<span style="display:inline-block;background:var(--olbg);border:1px solid var(--olbr);border-radius:20px;padding:3px 11px;font-size:11px;color:var(--ol);margin:2px">"'+d.risingPhrases[i]+'"</span>';}
-      html+='</div>';
-    }
-    if(d.saturatedPhrases&&d.saturatedPhrases.length){
-      html+='<div style="margin-top:6px"><div class="lbl" style="color:var(--rd)">🚫 Avoid — Saturated</div>';
-      for(var i=0;i<d.saturatedPhrases.length;i++){html+='<span style="display:inline-block;background:var(--rdbg);border:1px solid var(--rdbr);border-radius:20px;padding:3px 11px;font-size:11px;color:var(--rd);margin:2px">"'+d.saturatedPhrases[i]+'"</span>';}
-      html+='</div>';
-    }
-    html+='</div>';
-
-    html+='<div class="card"><div class="lbl">🔤 Font Styles</div>';
-    var fonts=d.topFontStyles||[];
-    for(var i=0;i<fonts.length;i++){
-      var f=fonts[i];
-      html+='<div class="card2" style="margin-bottom:8px">';
-      html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><strong>'+f.style+'</strong><span class="mono" style="color:var(--gd)">'+(f.popularity||0)+'%</span></div>';
-      html+='<div style="font-size:11px;color:var(--mu);margin-bottom:4px">'+(f.mood||'')+'</div>';
-      html+='<div style="font-size:11px;color:var(--ol);font-style:italic;margin-bottom:4px">e.g. '+(f.examples||'')+'</div>';
-      html+='<div style="font-size:10px;color:var(--bl)">Best for: '+(f.bestFor||[]).join(', ')+'</div>';
-      html+=pbar(f.popularity,'var(--ol)',3);
-      html+='</div>';
-    }
-    html+='<div style="margin-top:12px"><div class="lbl">Design Styles</div>';
-    var dstyles=d.dominantStyles||[];
-    for(var i=0;i<dstyles.length;i++){
-      var s=dstyles[i];
-      html+='<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="font-weight:600">'+s.style+'</span><span class="mono">'+(s.popularity||0)+'%</span></div>';
-      html+='<div style="font-size:12px;color:var(--mu);margin-bottom:4px">'+(s.desc||'')+' · '+(s.popularIn||[]).join(', ')+'</div>';
-      html+=pbar(s.popularity,'var(--ol)',3);
-      html+='</div>';
-    }
-    html+='</div></div></div>';
-
-    if(d.marketDesign){
-      html+='<div class="card d3"><div class="lbl">🌍 Design by Market</div><div class="grid-2">';
-      var markets=['UK','USA','Germany','Australia'];
-      for(var i=0;i<markets.length;i++){
-        var mk=markets[i];
-        if(d.marketDesign[mk]){
-          var flags={'UK':'🇬🇧','USA':'🇺🇸','Germany':'🇩🇪','Australia':'🇦🇺'};
-          html+='<div class="card2"><div style="font-weight:600;margin-bottom:6px">'+flags[mk]+' '+mk+'</div><p style="font-size:13px;color:var(--mu);line-height:1.6">'+d.marketDesign[mk]+'</p></div>';
-        }
-      }
-      html+='</div></div>';
-    }
-
+    const d=await callGroq(`Analyse visual design trends for Etsy "${kw}" globally across UK, USA, Germany, Australia. ${ctx}
+Return JSON: {"niche":"${kw}","topColours":[{"name":"colour","hex":"#RRGGBB","popularity":80,"markets":["UK","USA"],"mood":"calm"}],"colourPalettes":[{"name":"palette","colours":["#hex1","#hex2","#hex3"],"popularity":70,"context":"use case","markets":["UK","USA"]}],"dominantStyles":[{"style":"Minimalist","popularity":65,"desc":"clean lines no clutter","popularIn":["UK","Germany"]}],"fontStyles":[{"style":"Script","popularity":55,"mood":"elegant","examples":"wedding fonts","bestFor":["mugs","posters"]}],"topPhrases":[{"phrase":"exact phrase","frequency":45,"emotion":"funny|sentimental|empowering","markets":["UK","USA"]}],"risingPhrases":["phrase1","phrase2"],"saturatedPhrases":["avoid1","avoid2"],"imageTypes":[{"type":"Lifestyle","popularity":70,"desc":"real person using product"}],"layoutTypes":[{"layout":"Text-only","popularity":50}],"marketDesign":{"UK":"UK preference","USA":"USA preference","Germany":"Germany preference","Australia":"Aus preference"},"winningFormula":"detailed design formula paragraph","pinterestDirection":"what pinterest is showing for this niche"}`);
+    let html=`<div class="card-gold fu"><div class="lbl" style="color:var(--gd)">🏆 Winning Design Formula</div><p style="font-size:15px;line-height:1.85;font-family:Cormorant Garamond,serif">${d.winningFormula}</p><div style="margin-top:12px;padding:12px;background:var(--p3);border-radius:8px"><div class="lbl" style="color:var(--or)">📌 Pinterest Direction</div><p style="font-size:13px;color:var(--mu)">${d.pinterestDirection||''}</p></div></div>`;
+    if(d.colourPalettes?.length){html+=`<div class="card d1"><div class="lbl" style="color:var(--ol)">🎨 Colour Palettes</div><div class="grid-auto">`;d.colourPalettes.forEach(p=>{html+=`<div class="card2"><div style="display:flex;gap:6px;margin-bottom:10px">${(p.colours||[]).map(h=>`<div style="width:36px;height:36px;border-radius:6px;background:${h};border:1px solid rgba(0,0,0,.1)" title="${h}"></div>`).join('')}</div><div style="font-weight:600;font-size:14px;margin-bottom:4px">${p.name}</div><div style="font-size:11px;color:var(--mu);margin-bottom:6px">${p.context}</div>${pbar(p.popularity,'var(--gd)')}<div style="font-size:10px;color:var(--mu);margin-top:3px">${p.popularity}% · ${(p.markets||[]).join(', ')}</div></div>`;});html+=`</div></div>`;}
+    html+=`<div class="card d2"><div class="lbl">🎨 Individual Colours</div>`;(d.topColours||[]).forEach(c=>{html+=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><div style="width:42px;height:42px;border-radius:7px;background:${c.hex};border:1px solid rgba(0,0,0,.1);flex-shrink:0"></div><div style="flex:1"><div style="font-weight:600;font-size:14px;margin-bottom:3px">${c.name} <span class="mono" style="font-size:10px;color:var(--mu2)">${c.hex}</span> · ${c.mood}</div>${pbar(c.popularity,c.hex)}</div><span class="mono" style="font-size:12px;color:var(--mu)">${c.popularity}%</span></div>`;});html+=`</div>`;
+    html+=`<div class="grid-2 d2"><div class="card"><div class="lbl">💬 Top Selling Phrases</div>`;(d.topPhrases||[]).forEach(p=>{html+=`<div style="padding:10px 0;border-bottom:1px solid var(--b1)"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:15px;font-style:italic;font-weight:600;color:var(--gd);font-family:Cormorant Garamond,serif">"${p.phrase}"</span><span class="badge b-gold">×${p.frequency}</span></div><div style="font-size:11px;color:var(--mu)">${p.emotion} · ${(p.markets||[]).join(', ')}</div></div>`;});if(d.risingPhrases?.length){html+=`<div style="margin-top:10px"><div class="lbl" style="color:var(--ol)">⬆️ Rising</div>${d.risingPhrases.map(p=>`<span class="pill-o" style="background:var(--olbg);border:1px solid var(--olbr);border-radius:20px;padding:3px 11px;font-size:11px;color:var(--ol);font-family:DM Mono,monospace;margin:2px;display:inline-block">"${p}"</span>`).join('')}</div>`;}if(d.saturatedPhrases?.length){html+=`<div style="margin-top:10px"><div class="lbl" style="color:var(--rd)">🚫 Avoid</div>${d.saturatedPhrases.map(p=>`<span class="pill-r" style="background:var(--rdbg);border:1px solid var(--rdbr);border-radius:20px;padding:3px 11px;font-size:11px;color:var(--rd);font-family:DM Mono,monospace;margin:2px;display:inline-block">"${p}"</span>`).join('')}</div>`;}html+=`</div>`;
+    html+=`<div class="card"><div class="lbl">🔤 Font Styles</div>`;(d.fontStyles||[]).forEach(f=>{html+=`<div class="card2" style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><strong>${f.style}</strong><span class="mono" style="color:var(--gd)">${f.popularity}%</span></div><div style="font-size:11px;color:var(--mu);margin-bottom:4px">${f.mood} · ${f.examples}</div><div style="font-size:11px;color:var(--ol)">Best for: ${f.bestFor?.join(', ')}</div></div>`;});html+=`<div style="margin-top:12px"><div class="lbl">Design Styles</div>`;(d.dominantStyles||[]).forEach(s=>{html+=`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="font-weight:600">${s.style}</span><span class="mono">${s.popularity}%</span></div><div style="font-size:12px;color:var(--mu);margin-bottom:4px">${s.desc} · ${(s.popularIn||[]).join(', ')}</div>${pbar(s.popularity,'var(--ol)')}</div>`;});html+=`</div></div></div>`;
+    if(d.marketDesign){html+=`<div class="card d3"><div class="lbl">🌍 Design by Market</div><div class="grid-2">`;Object.entries(d.marketDesign).forEach(([k,v])=>{const f={'UK':'🇬🇧','USA':'🇺🇸','Germany':'🇩🇪','Australia':'🇦🇺'}[k]||'🌍';html+=`<div class="card2"><div style="font-weight:600;margin-bottom:6px">${f} ${k}</div><p style="font-size:13px;color:var(--mu);line-height:1.6">${v}</p></div>`;});html+=`</div></div>`;}
     res.innerHTML=html;
-  }catch(e){
-    res.innerHTML='<div class="card-red"><strong>Error:</strong> '+e.message+'</div>';
-  }
+  }catch(e){res.innerHTML=errBox(e.message);}
 }
-
 async function doGlobalTrends(){
-  var res=document.getElementById('tr-res');
-  res.innerHTML='<div class="card"><div class="loading-row"><div class="spin"></div>Loading global Etsy trends 2025...</div></div>';
+  const res=document.getElementById('tr-res');
+  res.innerHTML=`<div class="card"><div class="loading-row"><div class="spin"></div>Loading global Etsy trends 2025...</div></div>`;
   try{
-    var d=await callAI('What are the global visual design trends on Etsy right now in 2025? What colours styles phrases aesthetics are trending across UK USA Germany Australia? Return JSON: {"hotStyles":[{"style":"name","popularity":75,"markets":["UK","USA"],"desc":"description"}],"hotColours":["colour1","colour2","colour3","colour4","colour5"],"hotPhrases":["phrase1","phrase2","phrase3","phrase4","phrase5"],"aesthetics":["Cottagecore","Dark Academia","Coastal Grandma","Minimalist","Boho"],"declining":["declining1","declining2"],"pinterestHot":["trend1","trend2","trend3"],"byMarket":{"UK":{"trending":["t1","t2"],"colours":["c1","c2"],"topStyle":"style"},"USA":{"trending":["t1","t2"],"colours":["c1","c2"],"topStyle":"style"},"Germany":{"trending":["t1","t2"],"colours":["c1","c2"],"topStyle":"style"},"Australia":{"trending":["t1","t2"],"colours":["c1","c2"],"topStyle":"style"}}}');
-
-    var html=platformLinks('trending etsy 2025');
-    html+='<div class="card-olive fu"><div class="lbl" style="color:var(--ol)">🔥 Hot Global Styles Right Now</div><div class="grid-auto">';
-    var hotStyles=d.hotStyles||[];
-    for(var i=0;i<hotStyles.length;i++){
-      var s=hotStyles[i];
-      html+='<div class="card2"><div style="font-weight:700;font-size:15px;margin-bottom:5px">'+s.style+'</div>';
-      html+='<div style="font-size:12px;color:var(--mu);margin-bottom:8px">'+s.desc+'</div>';
-      html+=pbar(s.popularity,'var(--ol)');
-      html+='<div style="font-size:10px;color:var(--mu);margin-top:4px">'+(s.markets||[]).join(', ')+'</div></div>';
-    }
-    html+='</div></div>';
-
-    html+='<div class="grid-2 d1"><div class="card"><div class="lbl">🎨 Hottest Colours</div>';
-    var hotCols=d.hotColours||[];
-    for(var i=0;i<hotCols.length;i++){
-      html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--b1)">';
-      html+='<span style="font-size:13px">'+hotCols[i]+'</span></div>';
-    }
-    html+='</div>';
-
-    html+='<div class="card"><div class="lbl">📌 Pinterest Hot Now</div>';
-    var pinHot=d.pinterestHot||[];
-    for(var i=0;i<pinHot.length;i++){html+='<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--b1)"><span style="color:#e60023">📌</span><span style="font-size:13px">'+pinHot[i]+'</span></div>';}
-    html+='<div style="margin-top:10px"><div class="lbl" style="color:var(--rd)">⬇️ Declining — Avoid</div>';
-    var declining=d.declining||[];
-    for(var i=0;i<declining.length;i++){html+='<div style="padding:6px 0;font-size:13px;color:var(--mu);text-decoration:line-through">'+declining[i]+'</div>';}
-    html+='</div></div></div>';
-
-    html+='<div class="card d2"><div class="lbl">🌍 Trends by Market</div><div class="grid-2">';
-    var markets=['UK','USA','Germany','Australia'];
-    var flags={'UK':'🇬🇧','USA':'🇺🇸','Germany':'🇩🇪','Australia':'🇦🇺'};
-    var byMarket=d.byMarket||{};
-    for(var i=0;i<markets.length;i++){
-      var mk=markets[i];
-      var mv=byMarket[mk];
-      if(mv){
-        html+='<div class="card2"><div style="font-weight:600;margin-bottom:8px">'+flags[mk]+' '+mk+'</div>';
-        html+='<div class="lbl">Trending</div>';
-        var trending=mv.trending||[];
-        for(var j=0;j<trending.length;j++){html+='<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--b1)">→ '+trending[j]+'</div>';}
-        html+='<div class="lbl" style="margin-top:8px">Hot Colours</div>';
-        var mktCols=mv.colours||[];
-        for(var j=0;j<mktCols.length;j++){html+='<span class="pill">'+mktCols[j]+'</span>';}
-        if(mv.topStyle)html+='<div style="margin-top:8px"><span class="badge b-gold">'+mv.topStyle+'</span></div>';
-        html+='</div>';
-      }
-    }
-    html+='</div></div>';
-
-    html+='<div class="card-gold d2"><div class="lbl" style="color:var(--gd)">✨ Hot Aesthetics Right Now</div><div>';
-    var aes=d.aesthetics||[];
-    for(var i=0;i<aes.length;i++){html+='<span style="background:var(--gdbg);border:1px solid var(--gdbr);border-radius:20px;padding:5px 14px;font-size:13px;font-weight:600;color:var(--gd);margin:3px;display:inline-block">'+aes[i]+'</span>';}
-    html+='</div><div style="margin-top:12px"><div class="lbl">💬 Hot Phrases</div>';
-    var hotPh=d.hotPhrases||[];
-    for(var i=0;i<hotPh.length;i++){html+='<span style="font-style:italic;color:var(--gd);font-size:15px;font-family:Cormorant Garamond,serif;margin:4px;display:inline-block">"'+hotPh[i]+'"</span> · ';}
-    html+='</div></div>';
-
+    const d=await callGroq('What are the global visual design trends on Etsy right now in 2025? What colours, styles, phrases, aesthetics are trending across UK, USA, Germany, Australia? Return JSON: {"hotStyles":[{"style":"name","popularity":75,"markets":["UK","USA"],"desc":"description"}],"hotColours":["colour1","colour2","colour3","colour4","colour5"],"hotPhrases":["phrase1","phrase2","phrase3","phrase4","phrase5"],"aesthetics":["Cottagecore","Dark Academia","Coastal Grandma","Minimalist","Boho"],"declining":["declining1","declining2"],"pinterestHot":["trend1","trend2","trend3"],"byMarket":{"UK":{"trending":["t1","t2"],"colours":["c1","c2"]},"USA":{"trending":["t1","t2"],"colours":["c1","c2"]},"Germany":{"trending":["t1","t2"],"colours":["c1","c2"]},"Australia":{"trending":["t1","t2"],"colours":["c1","c2"]}}}');
+    let html=`<div class="card-olive fu"><div class="lbl" style="color:var(--ol)">🔥 Hot Global Styles Right Now</div><div class="grid-auto">`;
+    (d.hotStyles||[]).forEach(s=>{html+=`<div class="card2"><div style="font-weight:700;font-size:15px;margin-bottom:5px">${s.style}</div><div style="font-size:12px;color:var(--mu);margin-bottom:8px">${s.desc}</div>${pbar(s.popularity,'var(--ol)')}<div style="font-size:10px;color:var(--mu);margin-top:4px">${(s.markets||[]).join(', ')}</div></div>`;});
+    html+=`</div></div><div class="grid-2 d1"><div class="card"><div class="lbl">🎨 Hottest Colours</div>${(d.hotColours||[]).map(c=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--b1)"><span style="width:18px;height:18px;border-radius:50%;background:${c.startsWith('#')?c:'var(--p3)'};border:1px solid rgba(0,0,0,.1);display:inline-block;flex-shrink:0"></span><span style="font-size:13px">${c}</span></div>`).join('')}</div>`;
+    html+=`<div class="card"><div class="lbl">📌 Pinterest Hot Now</div>${(d.pinterestHot||[]).map(t=>`<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--b1)"><span style="color:#e60023">📌</span><span style="font-size:13px">${t}</span></div>`).join('')}<div style="margin-top:10px"><div class="lbl" style="color:var(--rd)">⬇️ Declining — Avoid</div>${(d.declining||[]).map(t=>`<div style="padding:6px 0;font-size:13px;color:var(--mu);text-decoration:line-through">${t}</div>`).join('')}</div></div></div>`;
+    html+=`<div class="card d2"><div class="lbl">🌍 Trends by Market</div><div class="grid-2">`;
+    Object.entries(d.byMarket||{}).forEach(([k,v])=>{const f={'UK':'🇬🇧','USA':'🇺🇸','Germany':'🇩🇪','Australia':'🇦🇺'}[k]||'🌍';html+=`<div class="card2"><div style="font-weight:600;margin-bottom:8px">${f} ${k}</div><div class="lbl">Trending</div>${(v.trending||[]).map(t=>`<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--b1)">→ ${t}</div>`).join('')}<div class="lbl" style="margin-top:8px">Hot Colours</div>${(v.colours||[]).map(c=>`<span class="pill">${c}</span>`).join('')}</div>`;});
+    html+=`</div></div><div class="card-gold d2"><div class="lbl" style="color:var(--gd)">✨ Hot Aesthetics</div><div>${(d.aesthetics||[]).map(a=>`<span style="background:var(--gdbg);border:1px solid var(--gdbr);border-radius:20px;padding:5px 14px;font-size:13px;font-weight:600;color:var(--gd);margin:3px;display:inline-block">${a}</span>`).join('')}</div><div style="margin-top:12px"><div class="lbl">💬 Hot Phrases</div>${(d.hotPhrases||[]).map(p=>`<span style="font-style:italic;color:var(--gd);font-size:15px;font-family:Cormorant Garamond,serif;margin:4px;display:inline-block">"${p}"</span>`).join(' · ')}</div></div>`;
     res.innerHTML=html;
-  }catch(e){
-    res.innerHTML='<div class="card-red"><strong>Error:</strong> '+e.message+'</div>';
-  }
+  }catch(e){res.innerHTML=errBox(e.message);}
 }
 </script>
 </body>
