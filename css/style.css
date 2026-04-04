@@ -142,6 +142,7 @@ button,a.btn{border:none;cursor:pointer;font-family:'Jost',sans-serif;font-weigh
 .nav-drop-btn.open svg{transform:rotate(180deg)}
 .nav-drop-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--w);border:1.5px solid var(--b1);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.1);min-width:200px;z-index:200;padding:6px}
 .nav-drop.open .nav-drop-menu{display:block}
+.nav-drop:hover .nav-drop-menu{display:block}
 .nav-drop-menu a{display:block;padding:8px 12px;font-size:13px;font-weight:500;color:var(--tx);text-decoration:none;border-radius:6px;transition:background .1s}
 .nav-drop-menu a:hover{background:var(--p2);color:var(--ol)}
 .nav-drop-menu a.active{color:var(--ol);font-weight:700;background:var(--olbg)}
