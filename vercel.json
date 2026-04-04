@@ -1,11 +1,6 @@
 {
-  "version": 2,
-  "builds": [
-    { "src": "api/*.js", "use": "@vercel/node" }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1" },
-    { "src": "/", "dest": "/index.html" },
-    { "src": "/(.*)", "dest": "/$1" }
+  "rewrites": [
+    { "source": "/api/etsy", "destination": "/api/etsy.js" },
+    { "source": "/api/groq", "destination": "/api/groq.js" }
   ]
 }
