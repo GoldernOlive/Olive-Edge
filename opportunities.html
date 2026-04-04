@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Opportunity Finder — Olive Edge</title>
+<link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="dashboard.html" class="nav-logo" style="text-decoration:none">
+      <span class="sub">Golden Olive</span>
+      <span class="main">Olive <span>Edge</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="dashboard.html" class="nav-link">Dashboard</a>
+      <a href="opportunities.html" class="nav-link active">Opportunities</a>
+      <a href="scanner.html" class="nav-link">Scanner</a>
+      <a href="trends.html" class="nav-link">Trends</a>
+      <a href="suppliers.html" class="nav-link">Suppliers</a>
+      <a href="listing-generator.html" class="nav-link">Listing Writer</a>
+      <a href="listing-auditor.html" class="nav-link">Auditor</a>
+      <a href="workspace.html" class="nav-link">Workspace</a>
+    </div>
+    <div class="nav-user">
+      <span class="nav-email" id="nav-email"></span>
+      <button class="btn-ghost btn-sm" onclick="logout()">Log Out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="fu">
+    <div class="page-title serif">Opportunity Finder</div>
+    <div class="page-sub">Real data from eBay UK · Reddit · Printify · Printful · NOTHS · Google Trends · AI Analysis</div>
+  </div>
+
+  <div class="card fu" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div style="flex:1;min-width:220px">
+      <div class="lbl">Keyword or Product Idea</div>
+      <input id="opp-kw" placeholder="e.g. custom mug, pet portrait, wall art, tote bag..." onkeydown="if(event.key==='Enter')doOpportunity()"/>
+    </div>
+    <div style="min-width:160px">
+      <div class="lbl">Primary Market</div>
+      <select id="opp-market">
+        <option value="GB">UK (Primary)</option>
+        <option value="US">USA</option>
+        <option value="DE">Germany</option>
+        <option value="AU">Australia</option>
+      </select>
+    </div>
+    <button class="btn-olive" onclick="doOpportunity()">Find Opportunity</button>
+  </div>
+
+  <div style="margin-bottom:14px">
+    <div class="lbl">Quick Ideas</div>
+    <div id="quick-chips"></div>
+  </div>
+
+  <!-- Data sources live status -->
+  <div class="card" style="padding:12px" id="source-status" style="display:none">
+    <div class="lbl" style="margin-bottom:8px">Live Data Sources</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap" id="source-badges"></div>
+  </div>
+
+  <div id="opp-result"></div>
+</div>
+
+<script>
+// ── Auth ──
+var SB_URL='https://oktpizrevqehfrkcqphq.supabase.co';
+var SB_KEY='sb_publishable_r4lLwwInTT76wXjP-Cha4Q_T1yALqyt';
+function getSession(){return{token:localStorage.getItem('oe_token')||'',email:localStorage.getItem('oe_email')||'',userId:localStorage.getItem('oe_uid')||''};}
+function logout(){localStorage.removeItem('oe_token');localStorage.removeItem('oe_email');localStorage.removeItem('oe_uid');window.location.href='index.html';}
+var SESSION=getSession();
+if(!SESSION.token){window.location.href='index.html';}
+else{var em=document.getElementById('nav-email');if(em)em.textContent=SESSION.email;}
+
+// ── Chips ──
+window.onload=function(){
+  var chips=['custom mug','pet portrait','wall art print','tote bag','wedding gift','baby name print','funny slogan shirt','personalised keyring','candle gift','digital planner','die cut sticker','motivational poster'];
+  var el=document.getElementById('quick-chips');
+  if(el){var h='';for(var i=0;i<chips.length;i++){h+='<button class="btn-chip" onclick="runChip(\''+chips[i]+'\')">'+chips[i]+'</button>';}el.innerHTML=h;}
+  var urlKw=new URLSearchParams(window.location.search).get('kw');
+  if(urlKw){document.getElementById('opp-kw').value=urlKw;doOpportunity();}
+};
+function runChip(k){document.getElementById('opp-kw').value=k;doOpportunity();}
+
+// ── Helpers ──
+function sbox(l,v,c){return '<div class="sbox"><div class="lbl">'+l+'</div><div style="font-size:16px;color:'+(c||'var(--tx)')+';font-weight:700;font-family:DM Mono,monospace">'+(v||'--')+'</div></div>';}
+function pbar(p,c,h){h=h||5;return '<div class="pbar" style="height:'+h+'px"><div class="pbf" style="width:'+Math.min(100,p||0)+'%;background:'+(c||'var(--gd)')+';height:'+h+'px"></div></div>';}
+function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n||0);}
+
+function setBadge(id,text,ok){
+  var el=document.getElementById('src-'+id);
+  if(!el){el=document.createElement('span');el.id='src-'+id;document.getElementById('source-badges').appendChild(el);}
+  el.textContent=text;
+  el.className='badge '+(ok?'b-live':'');
+  if(!ok){el.style.background='var(--p2)';el.style.color='var(--mu)';el.style.border='1px solid var(--b1)';}
+  document.getElementById('source-status').style.display='block';
+}
+
+function platformLinks(kw){
+  var k=encodeURIComponent(kw);
+  var links=[
+    {name:'Etsy UK',url:'https://www.etsy.com/uk/search?q='+k},
+    {name:'Etsy USA',url:'https://www.etsy.com/search?q='+k},
+    {name:'Etsy Germany',url:'https://www.etsy.com/de/search?q='+k},
+    {name:'Etsy Australia',url:'https://www.etsy.com/au/search?q='+k},
+    {name:'Printify',url:'https://printify.com/app/products?search='+k},
+    {name:'Printful',url:'https://www.printful.com/uk/custom/search?q='+k},
+    {name:'Gelato',url:'https://www.gelato.com/gb/en/catalogue?q='+k},
+    {name:'Pinterest',url:'https://www.pinterest.co.uk/search/pins/?q='+k},
+    {name:'eBay UK Sold',url:'https://www.ebay.co.uk/sch/i.html?_nkw='+k+'&LH_Sold=1&LH_Complete=1'},
+    {name:'Amazon UK',url:'https://www.amazon.co.uk/s?k='+k},
+    {name:'NOTHS',url:'https://www.notonthehighstreet.com/search?search_term='+k},
+    {name:'Folksy',url:'https://folksy.com/search?q='+k}
+  ];
+  var html='<div class="card" style="margin-bottom:16px;border:2px solid var(--olbr)">';
+  html+='<div class="lbl" style="color:var(--ol)">See Real Products On Every Platform</div>';
+  html+='<p style="font-size:12px;color:var(--mu);margin-bottom:10px">Click to research <strong>'+kw+'</strong> across every marketplace right now</p>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
+  for(var i=0;i<links.length;i++){
+    html+='<a href="'+links[i].url+'" target="_blank" style="display:inline-flex;align-items:center;background:var(--w);border:1.5px solid var(--b1);border-radius:8px;padding:7px 13px;font-size:12px;font-weight:600;color:var(--tx);text-decoration:none;font-family:Jost,sans-serif">'+links[i].name+'</a>';
+  }
+  html+='</div></div>';
+  return html;
+}
+
+// ── API Calls ──
+async function callAI(prompt){
+  var r=await fetch('/api/groq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
+  var d=await r.json();
+  if(!r.ok)throw new Error(d.error||'AI error');
+  return d;
+}
+
+async function getMarketData(kw){
+  try{
+    var r=await fetch('/api/market?keyword='+encodeURIComponent(kw));
+    var d=await r.json();
+    setBadge('market','Real Market Data',true);
+    return d;
+  }catch(e){
+    setBadge('market','Market Data Failed',false);
+    return{sources:{}};
+  }
+}
+
+async function getEtsyData(kw){
+  try{
+    var r=await fetch('/api/etsy?path='+encodeURIComponent('listings/active?keywords='+kw+'&limit=50&sort_on=score'));
+    if(!r.ok)throw new Error('Etsy '+r.status);
+    var d=await r.json();
+    setBadge('etsy','Etsy: '+((d.results||[]).length)+' Live Listings',true);
+    return d.results||[];
+  }catch(e){
+    setBadge('etsy','Etsy: Pending Approval',false);
+    return[];
+  }
+}
+
+async function doOpportunity(){
+  var kw=document.getElementById('opp-kw').value.trim();
+  if(!kw){alert('Please enter a keyword');return;}
+  var res=document.getElementById('opp-result');
+  document.getElementById('source-badges').innerHTML='';
+
+  res.innerHTML='<div class="card"><div class="loading-row"><div class="spin"></div>Step 1/4 — Fetching real eBay UK sold prices, Reddit discussions, Printify and Printful catalogues...</div></div>';
+
+  // Fetch all data sources in parallel
+  var[marketData,etsyListings]=await Promise.all([
+    getMarketData(kw),
+    getEtsyData(kw)
+  ]);
+
+  var ebay=marketData.sources&&marketData.sources.ebayUK||{};
+  var reddit=(marketData.sources&&marketData.sources.reddit)||[];
+  var redditHot=(marketData.sources&&marketData.sources.redditHot)||[];
+  var printify=marketData.sources&&marketData.sources.printify||{};
+  var printful=marketData.sources&&marketData.sources.printful||{};
+  var noths=marketData.sources&&marketData.sources.noths||{};
+  var googleTrending=(marketData.sources&&marketData.sources.googleTrendingUK)||[];
+
+  // Badge statuses
+  if(ebay.avgPrice)setBadge('ebay','eBay UK: avg £'+ebay.avgPrice,true);
+  else setBadge('ebay','eBay UK',false);
+  if(reddit.length)setBadge('reddit','Reddit: '+reddit.length+' posts',true);
+  else setBadge('reddit','Reddit',false);
+  if(printify.total)setBadge('printify','Printify: '+printify.total+' products',true);
+  else setBadge('printify','Printify',false);
+  if(noths.avgPrice)setBadge('noths','NOTHS: avg £'+noths.avgPrice,true);
+  else setBadge('noths','NOTHS',false);
+
+  res.innerHTML='<div class="card"><div class="loading-row"><div class="spin"></div>Step 2/4 — Analysing '+reddit.length+' Reddit discussions across 5 communities...</div></div>';
+
+  // Build rich context for AI
+  var ebayCtx=ebay.avgPrice
+    ?'EBAY UK SOLD PRICES: avg £'+ebay.avgPrice+', min £'+ebay.minPrice+', max £'+ebay.maxPrice+', median £'+ebay.medianPrice+'. Sample sold: '+( ebay.soldListings||[]).slice(0,5).join(' | ')
+    :'No eBay data.';
+
+  var redditCtx=reddit.length
+    ?'REDDIT DISCUSSIONS ('+reddit.length+' posts across r/EtsySellers r/Etsy r/printOnDemand): '+reddit.slice(0,8).map(function(p){return'"'+p.title+'" ('+p.score+' upvotes, '+p.comments+' comments, r/'+p.subreddit+')';}).join(' | ')
+    :'No Reddit data.';
+
+  var nothsCtx=noths.avgPrice
+    ?' NOTHS UK avg £'+noths.avgPrice+' min £'+noths.minPrice+' max £'+noths.maxPrice
+    :'';
+
+  var pfyCtx=printify.matching&&printify.matching.length
+    ?'PRINTIFY PRODUCTS: '+(printify.matching||[]).map(function(p){return p.title;}).join(', ')
+    :'';
+
+  var etsyCtx=etsyListings.length
+    ?'LIVE ETSY: '+etsyListings.length+' listings, prices £'+((etsyListings[0]&&etsyListings[0].price&&etsyListings[0].price.amount||0)/100).toFixed(2)+'-£'+((etsyListings[etsyListings.length-1]&&etsyListings[etsyListings.length-1].price&&etsyListings[etsyListings.length-1].price.amount||0)/100).toFixed(2)
+    :'Etsy API pending - use other data.';
+
+  var trendCtx=googleTrending.length
+    ?'GOOGLE TRENDING UK TODAY: '+googleTrending.slice(0,10).join(', ')
+    :'';
+
+  res.innerHTML='<div class="card"><div class="loading-row"><div class="spin"></div>Step 3/4 — AI synthesising all real data into market intelligence...</div></div>';
+
+  try{
+    var d=await callAI(
+      'You are an expert Etsy POD market analyst. Analyse "'+kw+'" using this REAL DATA:\n\n'+
+      ebayCtx+'\n'+redditCtx+'\n'+nothsCtx+'\n'+pfyCtx+'\n'+etsyCtx+'\n'+trendCtx+'\n\n'+
+      'UK primary market. Also consider USA, Germany, Australia.\n'+
+      'Base your analysis on the REAL prices and discussions above, not guesses.\n'+
+      'Return JSON only:\n'+
+      '{"opportunityScore":7.5,"demandScore":8,"competitionScore":4,"marginScore":7,"saturationLevel":"Medium",'+
+      '"verdict":"BUY IN","verdictReason":"Based on real eBay sold prices averaging £X and Y active Reddit discussions showing strong buyer intent...",'+
+      '"realPriceInsight":"What the eBay and NOTHS real prices tell us about this market",'+
+      '"redditInsight":"What sellers and buyers are actually saying on Reddit",'+
+      '"competingShops":"~X,XXX","estimatedMonthlySearches":"X,XXX-XX,XXX",'+
+      '"ukSweetSpot":"£X-£Y based on real sold prices",'+
+      '"sellThisNow":{"product":"exact product","platform":"Printify or Printful","baseCost":"£X","ukPrice":"£X","usaPrice":"$X","germanyPrice":"€X","australiaPrice":"AU$X","margin":"X%","bestDesignStyle":"style","bestPhrase":"phrase","designBrief":"3 sentence design brief"},'+
+      '"topTags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10","tag11","tag12","tag13"],'+
+      '"titleFormula":"[Adj] [Product] | [Keyword] Gift for [Audience]",'+
+      '"globalDemand":{"UK":80,"USA":90,"Germany":60,"Australia":55},'+
+      '"seasonality":[{"month":"Jan","score":40},{"month":"Feb","score":55},{"month":"Mar","score":60},{"month":"Apr","score":50},{"month":"May","score":55},{"month":"Jun","score":50},{"month":"Jul","score":45},{"month":"Aug","score":55},{"month":"Sep","score":65},{"month":"Oct","score":75},{"month":"Nov","score":88},{"month":"Dec","score":92}],'+
+      '"marketGaps":[{"market":"UK","gap":"specific gap found in real data","action":"exact action"},{"market":"USA","gap":"gap","action":"action"}],'+
+      '"opportunities":["specific opp based on real data 1","opp2","opp3"],'+
+      '"warnings":["warning based on real data 1","warning2"]}'
+    );
+
+    renderFull(d,kw,marketData,etsyListings,reddit,redditHot);
+  }catch(e){
+    res.innerHTML='<div class="card-red"><strong>Analysis failed:</strong> '+e.message+'</div>';
+  }
+}
+
+function renderFull(d,kw,marketData,etsyListings,reddit,redditHot){
+  var res=document.getElementById('opp-result');
+  var ebay=marketData.sources&&marketData.sources.ebayUK||{};
+  var printify=marketData.sources&&marketData.sources.printify||{};
+  var printful=marketData.sources&&marketData.sources.printful||{};
+  var noths=marketData.sources&&marketData.sources.noths||{};
+
+  var sc=d.opportunityScore||7;
+  var scClass=sc>=7?'score-high':sc>=5?'score-mid':'score-low';
+  var verdColors={'BUY IN':'var(--gn)','WORTH TESTING':'var(--gd)','PROCEED WITH CAUTION':'var(--or)','AVOID':'var(--rd)'};
+  var vc=verdColors[d.verdict]||'var(--gd)';
+  var html='';
+
+  html+=platformLinks(kw);
+
+  // HERO
+  html+='<div class="card-live fu">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:18px">';
+  html+='<div style="flex:1">';
+  html+='<div class="serif" style="font-size:32px;font-weight:600;margin-bottom:10px">'+kw+'</div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+  html+='<span style="background:'+vc+'18;color:'+vc+';border:1px solid '+vc+'44;border-radius:20px;padding:5px 16px;font-size:13px;font-weight:700">'+d.verdict+'</span>';
+  html+='</div>';
+  html+='<p style="font-size:14px;color:var(--mu);line-height:1.7">'+d.verdictReason+'</p></div>';
+  html+='<div class="score-ring '+scClass+'">'+sc+'</div></div>';
+  html+='<div class="grid-auto" style="margin-bottom:14px">';
+  html+=sbox('Demand',d.demandScore+'/10',d.demandScore>=7?'var(--ol)':'var(--gd)');
+  html+=sbox('Competition',d.competitionScore+'/10',d.competitionScore<=4?'var(--gn)':'var(--or)');
+  html+=sbox('Margin',d.marginScore+'/10','var(--gd)');
+  html+=sbox('Saturation',d.saturationLevel,d.saturationLevel==='Low'?'var(--gn)':d.saturationLevel==='Medium'?'var(--gd)':'var(--rd)');
+  html+='</div></div>';
+
+  // REAL PRICE DATA from eBay + NOTHS
+  html+='<div class="card-gold d1"><div class="lbl" style="color:var(--gd)">Real Sold Prices — What Buyers Actually Pay</div>';
+  html+='<div class="grid-auto" style="margin-bottom:12px">';
+  if(ebay.avgPrice){
+    html+=sbox('eBay UK Avg','£'+ebay.avgPrice,'var(--gd)');
+    html+=sbox('eBay Min','£'+ebay.minPrice,'var(--gn)');
+    html+=sbox('eBay Max','£'+ebay.maxPrice,'var(--rd)');
+    html+=sbox('eBay Median','£'+ebay.medianPrice,'var(--ol)');
+  }
+  if(noths.avgPrice)html+=sbox('NOTHS UK Avg','£'+noths.avgPrice,'var(--bl)');
+  html+='</div>';
+  if(d.ukSweetSpot)html+='<div style="padding:10px;background:var(--w);border-radius:8px;font-size:13px"><strong>Your sweet spot: '+d.ukSweetSpot+'</strong></div>';
+  if(d.realPriceInsight)html+='<p style="font-size:13px;color:var(--mu);margin-top:8px">'+d.realPriceInsight+'</p>';
+  html+='</div>';
+
+  // REDDIT REAL DISCUSSIONS
+  if(reddit.length){
+    html+='<div class="card d1" style="border-left:4px solid #ff4500"><div class="lbl" style="color:#cc4400">What Sellers Are Actually Saying on Reddit</div>';
+    html+='<p style="font-size:11px;color:var(--mu);margin-bottom:10px">'+reddit.length+' discussions across r/EtsySellers, r/Etsy, r/printOnDemand, r/Handmade</p>';
+    for(var i=0;i<Math.min(reddit.length,8);i++){
+      var post=reddit[i];
+      html+='<div style="padding:10px 0;border-bottom:1px solid var(--b1)">';
+      html+='<div style="font-size:13px;font-weight:600;margin-bottom:4px">'+post.title+'</div>';
+      html+='<div style="display:flex;gap:12px;align-items:center">';
+      html+='<span style="font-size:11px;color:var(--mu)">'+post.score+' upvotes</span>';
+      html+='<span style="font-size:11px;color:var(--mu)">'+post.comments+' comments</span>';
+      html+='<span style="font-size:10px;background:var(--p3);padding:2px 7px;border-radius:10px;color:var(--mu)">r/'+post.subreddit+'</span>';
+      html+='<a href="'+post.url+'" target="_blank" style="font-size:11px;color:var(--bl)">Read</a></div></div>';
+    }
+    if(d.redditInsight)html+='<div style="margin-top:10px;padding:10px;background:var(--p2);border-radius:8px;font-size:13px;font-style:italic;color:var(--mu)">'+d.redditInsight+'</div>';
+    html+='</div>';
+  }
+
+  // SELL THIS NOW
+  html+='<div class="card-gold d2"><div class="lbl" style="color:var(--gd)">SELL THIS NOW</div>';
+  var st=d.sellThisNow||{};
+  html+='<div class="serif" style="font-size:22px;font-weight:600;margin-bottom:14px">'+(st.product||'')+'</div>';
+  html+='<div class="grid-auto" style="margin-bottom:14px">';
+  html+=sbox('Platform',st.platform,'var(--bl)');
+  html+=sbox('Base Cost',st.baseCost,'var(--mu)');
+  html+=sbox('UK',st.ukPrice,'var(--gd)');
+  html+=sbox('USA',st.usaPrice,'var(--gd)');
+  html+=sbox('Germany',st.germanyPrice,'var(--gd)');
+  html+=sbox('Australia',st.australiaPrice,'var(--gd)');
+  html+=sbox('Margin',st.margin,'var(--ol)');
+  html+='</div>';
+  if(st.designBrief)html+='<div style="padding:12px;background:var(--olbg);border-radius:8px;border:1px solid var(--olbr)"><div class="lbl" style="color:var(--ol)">Design Brief</div><p style="font-size:13px;line-height:1.7">'+st.designBrief+'</p></div>';
+  html+='</div>';
+
+  // TAGS
+  var tags=d.topTags||[];
+  if(tags.length){
+    html+='<div class="card d2">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">';
+    html+='<span class="lbl" style="margin-bottom:0">13 Optimised Tags</span>';
+    html+='<button class="btn-ghost btn-sm" id="copy-tags-btn" onclick="copyTags()">Copy All 13</button></div>';
+    html+='<div>';
+    for(var i=0;i<tags.length;i++){html+='<span class="pill" style="cursor:pointer" onclick="copyText2(\''+tags[i]+'\')" title="Click to copy">'+tags[i]+'</span>';}
+    html+='</div>';
+    html+='<div style="margin-top:10px;background:var(--p3);border-radius:8px;padding:10px;cursor:pointer" onclick="copyTags()">';
+    html+='<p style="font-family:DM Mono,monospace;font-size:11px;line-height:2;word-break:break-word">'+tags.join(', ')+'</p></div>';
+    if(d.titleFormula)html+='<div style="margin-top:10px;padding:10px;background:var(--gdbg);border-radius:8px"><div class="lbl">Title Formula</div><p style="font-size:13px;font-style:italic">'+d.titleFormula+'</p></div>';
+    html+='</div>';
+    window._tags=tags;
+  }
+
+  // PRINTIFY & PRINTFUL real products
+  if((printify.matching&&printify.matching.length)||(printful.matching&&printful.matching.length)){
+    html+='<div class="card d2"><div class="lbl">Real POD Products Found</div>';
+    if(printify.matching&&printify.matching.length){
+      html+='<div style="margin-bottom:8px"><strong style="font-size:12px">Printify ('+printify.total+' total products):</strong> ';
+      html+=printify.matching.map(function(p){return'<span class="pill">'+p.title+'</span>';}).join('');
+      html+='</div>';
+    }
+    if(printful.matching&&printful.matching.length){
+      html+='<div><strong style="font-size:12px">Printful:</strong> ';
+      html+=printful.matching.map(function(p){return'<span class="pill">'+p.title+'</span>';}).join('');
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+
+  // GLOBAL DEMAND + SEASONALITY
+  html+='<div class="grid-2 d3">';
+  var gd=d.globalDemand||{};var gdKeys=Object.keys(gd);
+  if(gdKeys.length){
+    html+='<div class="card"><div class="lbl">Global Demand</div>';
+    for(var i=0;i<gdKeys.length;i++){
+      var mk=gdKeys[i];var flags={'UK':'🇬🇧','USA':'🇺🇸','Germany':'🇩🇪','Australia':'🇦🇺'};
+      html+='<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>'+(flags[mk]||'')+' '+mk+'</span><span class="mono">'+gd[mk]+'%</span></div>';
+      html+=pbar(gd[mk],gd[mk]>70?'var(--ol)':gd[mk]>40?'var(--gd)':'var(--b2)');
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+
+  var seas=d.seasonality||[];
+  if(seas.length){
+    var sBars='';var sLbls='';
+    for(var i=0;i<seas.length;i++){
+      var sh=Math.max((seas[i].score/100)*64,3);
+      var sc2=seas[i].score>70?'var(--ol)':seas[i].score>40?'var(--gd)':'var(--b2)';
+      sBars+='<div style="flex:1;height:'+sh+'px;background:'+sc2+';border-radius:2px 2px 0 0" title="'+seas[i].month+': '+seas[i].score+'"></div>';
+      sLbls+='<div style="flex:1;text-align:center;font-size:8px;color:var(--mu2)">'+seas[i].month[0]+'</div>';
+    }
+    html+='<div class="card"><div class="lbl">Seasonality</div><div style="display:flex;align-items:flex-end;gap:3px;height:68px">'+sBars+'</div><div style="display:flex;gap:3px;margin-top:5px">'+sLbls+'</div></div>';
+  }
+  html+='</div>';
+
+  // MARKET GAPS
+  var gaps=d.marketGaps||[];
+  if(gaps.length){
+    html+='<div class="card-gold d3"><div class="lbl" style="color:var(--gd)">Market Gaps by Country</div>';
+    for(var i=0;i<gaps.length;i++){
+      html+='<div style="padding:12px 0;border-bottom:1px solid var(--gdbr)">';
+      html+='<div style="font-weight:700;font-size:15px;margin-bottom:4px">'+gaps[i].market+' — '+gaps[i].gap+'</div>';
+      html+='<div style="font-size:13px;color:var(--ol);font-weight:600">→ '+gaps[i].action+'</div></div>';
+    }
+    html+='</div>';
+  }
+
+  // OPPORTUNITIES + WARNINGS
+  html+='<div class="grid-2 d4">';
+  var opps=d.opportunities||[];
+  if(opps.length){
+    html+='<div class="card-olive"><div class="lbl" style="color:var(--ol)">Opportunities</div>';
+    for(var i=0;i<opps.length;i++){html+='<div style="display:flex;gap:8px;margin-bottom:10px;font-size:13px;line-height:1.6"><span style="color:var(--ol);font-weight:700">+</span>'+opps[i]+'</div>';}
+    html+='</div>';
+  }
+  var warns=d.warnings||[];
+  if(warns.length){
+    html+='<div class="card-red"><div class="lbl" style="color:var(--rd)">Watch Out</div>';
+    for(var i=0;i<warns.length;i++){html+='<div style="display:flex;gap:8px;margin-bottom:10px;font-size:13px;line-height:1.6"><span style="color:var(--rd);font-weight:700">!</span><span style="color:var(--mu)">'+warns[i]+'</span></div>';}
+    html+='</div>';
+  }
+  html+='</div>';
+
+  // SAVE
+  html+='<div class="card d4" style="display:flex;gap:10px;flex-wrap:wrap">';
+  html+='<button class="btn-olive" onclick="saveOpp(\''+kw.replace(/'/g,"\\'")+'\',' +sc+',\''+d.verdict+'\')">+ Save to Workspace</button>';
+  html+='</div>';
+
+  res.innerHTML=html;
+  window._oppData=d;
+}
+
+function copyTags(){
+  var tags=window._tags||[];
+  var text=tags.join(', ');
+  if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){var btn=document.getElementById('copy-tags-btn');if(btn){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy All 13';},2000);}});}
+}
+function copyText2(t){if(navigator.clipboard)navigator.clipboard.writeText(t);}
+
+function saveOpp(niche,score,verdict){
+  var status=verdict.indexOf('BUY IN')>=0?'launch':verdict.indexOf('TESTING')>=0?'test':'watch';
+  fetch(SB_URL+'/rest/v1/workspace',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SESSION.token,'Prefer':'return=representation'},
+    body:JSON.stringify({niche:niche,status:status,opportunity_score:score,owner_id:SESSION.userId,created_at:new Date().toISOString()})
+  }).then(function(){alert('Saved to Workspace!');}).catch(function(e){alert('Error: '+e.message);});
+}
+</script>
+</body>
+</html>
