@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Dashboard — Olive Edge</title>
+<link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<!-- SELF CONTAINED NAV - no dependency on auth.js nav rendering -->
+<nav class="nav" id="main-nav">
+  <div class="nav-inner">
+    <a href="dashboard.html" class="nav-logo" style="text-decoration:none">
+      <span class="sub">Golden Olive</span>
+      <span class="main">Olive <span>Edge</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="dashboard.html" class="nav-link active">Dashboard</a>
+      <a href="opportunities.html" class="nav-link">Opportunities</a>
+      <a href="scanner.html" class="nav-link">Scanner</a>
+      <a href="trends.html" class="nav-link">Trends</a>
+      <a href="suppliers.html" class="nav-link">Suppliers</a>
+      <a href="listing-generator.html" class="nav-link">Listing Writer</a>
+      <a href="listing-auditor.html" class="nav-link">Auditor</a>
+      <a href="workspace.html" class="nav-link">Workspace</a>
+    </div>
+    <div class="nav-user">
+      <span class="nav-email" id="nav-email"></span>
+      <button class="btn-ghost btn-sm" onclick="logout()">Log Out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="fu">
+    <div class="page-title serif">Dashboard</div>
+    <div class="page-sub">Your global Etsy intelligence hub</div>
+  </div>
+
+  <div class="card fu" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <input id="dash-kw" placeholder="Quick scan — e.g. custom mug, wall art, tote bag..." style="flex:1;min-width:200px" onkeydown="if(event.key==='Enter')quickScan()"/>
+    <button class="btn-olive" onclick="quickScan()">Scan Now</button>
+    <button class="btn-ghost" onclick="window.location.href='opportunities.html'">Full Opportunity Finder</button>
+  </div>
+
+  <div class="grid-2 d1">
+    <div>
+      <div class="card-olive">
+        <div class="lbl" style="color:var(--ol)">Sell Right Now</div>
+        <div id="sell-now"><div class="loading-row"><div class="spin"></div>Loading...</div></div>
+      </div>
+      <div class="card-gold" style="margin-top:16px">
+        <div class="lbl" style="color:var(--gd)">Evergreen Winners</div>
+        <div id="evergreen"><div class="loading-row"><div class="spin"></div>Loading...</div></div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="lbl">Seasonal Spikes — List Now</div>
+        <div id="seasonal"><div class="loading-row"><div class="spin"></div>Loading...</div></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="lbl">Best Margin Opportunities</div>
+        <div id="margin-opps"><div class="loading-row"><div class="spin"></div>Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card d2">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <span class="lbl" style="margin-bottom:0">Recent Workspace Activity</span>
+      <a href="workspace.html" style="text-decoration:none;border:1.5px solid var(--b2);padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;color:var(--mu);font-family:Jost,sans-serif">View All</a>
+    </div>
+    <div id="recent-workspace"><div style="color:var(--mu);font-size:13px">No saved ideas yet.</div></div>
+  </div>
+
+  <div class="card d2">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div class="lbl" style="margin-bottom:2px;color:var(--rd)">Trending Right Now on Etsy</div>
+        <div style="font-size:11px;color:var(--mu)">Keywords rising fastest this week globally</div>
+      </div>
+      <button class="btn-ghost btn-sm" onclick="loadTrending()">Refresh</button>
+    </div>
+    <div id="trending-keywords"><div class="loading-row"><div class="spin"></div>Loading trending keywords...</div></div>
+  </div>
+
+  <div id="scan-result"></div>
+</div>
+
+<script>
+// ── Auth (no backticks, no template literals) ──
+var SB_URL='https://oktpizrevqehfrkcqphq.supabase.co';
+var SB_KEY='sb_publishable_r4lLwwInTT76wXjP-Cha4Q_T1yALqyt';
+
+function getSession(){
+  return{
+    token:localStorage.getItem('oe_token')||'',
+    email:localStorage.getItem('oe_email')||'',
+    userId:localStorage.getItem('oe_uid')||''
+  };
+}
+function logout(){
+  localStorage.removeItem('oe_token');
+  localStorage.removeItem('oe_email');
+  localStorage.removeItem('oe_uid');
+  window.location.href='index.html';
+}
+
+// Check auth
+var SESSION=getSession();
+if(!SESSION.token){window.location.href='index.html';}
+else{
+  var emailEl=document.getElementById('nav-email');
+  if(emailEl)emailEl.textContent=SESSION.email;
+}
+
+// ── AI Call ──
+async function callAI(prompt){
+  var r=await fetch('/api/groq',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({prompt:prompt})
+  });
+  var d=await r.json();
+  if(!r.ok)throw new Error(d.error||'Server error '+r.status);
+  return d;
+}
+
+// ── DB ──
+async function dbSelect(table,filters){
+  var url=SB_URL+'/rest/v1/'+table+'?select=*';
+  if(filters)url+='&'+filters;
+  var r=await fetch(url,{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SESSION.token}});
+  if(!r.ok)throw new Error('DB error');
+  return r.json();
+}
+async function dbInsert(table,row){
+  var r=await fetch(SB_URL+'/rest/v1/'+table,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SESSION.token,'Prefer':'return=representation'},
+    body:JSON.stringify(row)
+  });
+  if(!r.ok)throw new Error('Insert failed');
+  return r.json();
+}
+
+// ── Helpers ──
+function sbox(l,v,c){
+  return '<div class="sbox"><div class="lbl">'+l+'</div><div style="font-size:16px;color:'+(c||'var(--tx)')+';font-weight:700;font-family:DM Mono,monospace">'+(v||'--')+'</div></div>';
+}
+function pill(t){return '<span class="pill">'+t+'</span>';}
+function badge(t,cls){return '<span class="badge '+(cls||'b-grey')+'">'+t+'</span>';}
+
+// ── Platform Links ──
+function platformLinks(kw){
+  var k=encodeURIComponent(kw);
+  var links=[
+    ['Etsy UK','https://www.etsy.com/uk/search?q='+k],
+    ['Etsy USA','https://www.etsy.com/search?q='+k],
+    ['Pinterest','https://www.pinterest.co.uk/search/pins/?q='+k],
+    ['Printify','https://printify.com/app/products?search='+k],
+    ['Printful','https://www.printful.com/uk/custom/search?q='+k],
+    ['Amazon UK','https://www.amazon.co.uk/s?k='+k],
+    ['NOTHS','https://www.notonthehighstreet.com/search?search_term='+k]
+  ];
+  var html='<div class="card" style="margin-bottom:16px;border:2px solid var(--olbr)">';
+  html+='<div class="lbl" style="color:var(--ol)">See Real Products On Every Platform</div>';
+  html+='<p style="font-size:12px;color:var(--mu);margin-bottom:10px">What is selling for <strong>'+kw+'</strong> right now:</p>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
+  for(var i=0;i<links.length;i++){
+    html+='<a href="'+links[i][1]+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;background:var(--w);border:1.5px solid var(--b1);border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;color:var(--tx);text-decoration:none;font-family:Jost,sans-serif">'+links[i][0]+'</a>';
+  }
+  html+='</div></div>';
+  return html;
+}
+
+// ── Load Dashboard Data ──
+async function loadDashboard(){
+  var prompt='You are an Etsy POD expert for UK sellers. What are the best print-on-demand opportunities RIGHT NOW in 2025 for UK market? Return ONLY valid JSON starting with { and ending with }, no markdown: {"sellNow":[{"niche":"Personalised Pet Mug","reason":"Pet ownership up 25% since 2020","urgency":"Today","platform":"Printful","ukPrice":"16.99","usaPrice":"21.99"},{"niche":"Funny Office Mug","reason":"Remote work gifting remains strong","urgency":"This Week","platform":"Printify","ukPrice":"12.99","usaPrice":"15.99"},{"niche":"Custom Tote Bag","reason":"Eco gift demand rising","urgency":"This Week","platform":"Printify","ukPrice":"14.99","usaPrice":"18.99"}],"evergreen":[{"niche":"Wedding Print","reason":"Year round demand","avgPrice":"28.99","competition":"Low"},{"niche":"Baby Name Art","reason":"Always new parents","avgPrice":"19.99","competition":"Medium"},{"niche":"Custom Name Print","reason":"Personalisation evergreen","avgPrice":"15.99","competition":"Medium"}],"seasonal":[{"event":"Christmas","date":"December","products":["Mugs","Ornaments","Cards"],"leadTime":"8 weeks"},{"event":"Mothers Day","date":"March","products":["Mugs","Tote Bags","Prints"],"leadTime":"6 weeks"},{"event":"Valentines Day","date":"February","products":["Couples Print","Heart Mug"],"leadTime":"4 weeks"}],"bestMargin":[{"product":"11oz Ceramic Mug","platform":"Printify","baseCost":"3.50","sellPrice":"14.99","margin":"77%"},{"product":"Canvas Tote Bag","platform":"Printify","baseCost":"4.20","sellPrice":"16.99","margin":"75%"},{"product":"A4 Art Print","platform":"Gelato","baseCost":"2.80","sellPrice":"12.99","margin":"78%"}]}';
+
+  try{
+    var d=await callAI(prompt);
+    var html='';
+
+    // Sell Now
+    var sn=d.sellNow||[];
+    for(var i=0;i<sn.length;i++){
+      var p=sn[i];
+      var uc=p.urgency==='Today'?'var(--rd)':'var(--or)';
+      html+='<div style="padding:12px 0;border-bottom:1px solid var(--olbr)">';
+      html+='<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:5px">';
+      html+='<div><span style="font-weight:700;font-size:15px">'+p.niche+'</span> <span style="color:'+uc+';font-size:12px;font-weight:700">'+p.urgency+'</span></div>';
+      html+='<div style="text-align:right"><div style="font-weight:700;color:var(--gd);font-family:DM Mono,monospace">£'+p.ukPrice+'</div><div style="font-size:10px;color:var(--mu)">$'+p.usaPrice+'</div></div></div>';
+      html+='<div style="font-size:12px;color:var(--mu);margin-bottom:5px">'+p.reason+'</div>';
+      html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">';
+      html+='<span class="badge b-live">'+p.platform+'</span>';
+      var k=encodeURIComponent(p.niche);
+      html+='<a href="https://www.etsy.com/uk/search?q='+k+'" target="_blank" style="font-size:10px;color:var(--ol);text-decoration:none;border:1px solid var(--olbr);border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">Etsy UK</a>';
+      html+='<a href="https://www.etsy.com/search?q='+k+'" target="_blank" style="font-size:10px;color:var(--bl);text-decoration:none;border:1px solid var(--b2);border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">Etsy USA</a>';
+      html+='<a href="https://www.pinterest.co.uk/search/pins/?q='+k+'" target="_blank" style="font-size:10px;color:#e60023;text-decoration:none;border:1px solid #ffb0a0;border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">Pinterest</a>';
+      html+='</div></div>';
+    }
+    document.getElementById('sell-now').innerHTML=html||'<p style="color:var(--mu)">Run a scan to see opportunities</p>';
+
+    // Evergreen
+    html='';
+    var ev=d.evergreen||[];
+    for(var i=0;i<ev.length;i++){
+      var p=ev[i];
+      var cc=p.competition==='Low'?'var(--gn)':p.competition==='Medium'?'var(--gd)':'var(--rd)';
+      html+='<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--gdbr)">';
+      html+='<div><div style="font-weight:600;font-size:14px">'+p.niche+'</div><div style="font-size:12px;color:var(--mu)">'+p.reason+'</div></div>';
+      var k2=encodeURIComponent(p.niche);
+      html+='<div style="text-align:right"><div style="font-weight:700;color:var(--gd);font-family:DM Mono,monospace">£'+p.avgPrice+'</div><div style="font-size:10px;color:'+cc+'">'+p.competition+'</div>';
+      html+='<a href="https://www.etsy.com/uk/search?q='+k2+'" target="_blank" style="display:inline-block;margin-top:4px;font-size:10px;color:var(--ol);text-decoration:none;border:1px solid var(--olbr);border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">See on Etsy</a>';
+      html+='</div></div>';
+    }
+    document.getElementById('evergreen').innerHTML=html;
+
+    // Seasonal
+    html='';
+    var sea=d.seasonal||[];
+    for(var i=0;i<sea.length;i++){
+      var s=sea[i];
+      html+='<div style="padding:10px 0;border-bottom:1px solid var(--b1)">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><strong>'+s.event+'</strong><span class="badge b-gold">'+s.date+'</span></div>';
+      html+='<div style="font-size:12px;color:var(--mu);margin-bottom:5px">List '+s.leadTime+' before</div><div>';
+      var pr=s.products||[];for(var j=0;j<pr.length;j++){html+=pill(pr[j]);}
+      html+='</div>';
+      var k3=encodeURIComponent(s.event+' gift');
+      html+='<div style="margin-top:8px;display:flex;gap:6px">';
+      html+='<a href="https://www.etsy.com/uk/search?q='+k3+'" target="_blank" style="font-size:10px;color:var(--ol);text-decoration:none;border:1px solid var(--olbr);border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">Etsy UK</a>';
+      html+='<a href="https://www.etsy.com/search?q='+k3+'" target="_blank" style="font-size:10px;color:var(--bl);text-decoration:none;border:1px solid var(--b2);border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">Etsy USA</a>';
+      html+='<a href="https://www.pinterest.co.uk/search/pins/?q='+k3+'" target="_blank" style="font-size:10px;color:#e60023;text-decoration:none;border:1px solid #ffb0a0;border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">Pinterest</a>';
+      html+='</div></div>';
+    }
+    document.getElementById('seasonal').innerHTML=html;
+
+    // Best Margin
+    html='';
+    var bm=d.bestMargin||[];
+    for(var i=0;i<bm.length;i++){
+      var p=bm[i];
+      html+='<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--b1)">';
+      html+='<div><div style="font-weight:600;font-size:14px">'+p.product+'</div><div style="font-size:11px;color:var(--mu)">'+p.platform+' · Base: £'+p.baseCost+'</div></div>';
+      var k4=encodeURIComponent(p.product);
+      html+='<div style="text-align:right"><div style="font-weight:700;color:var(--gd);font-family:DM Mono,monospace">£'+p.sellPrice+'</div><div style="font-size:11px;color:var(--ol);font-weight:700">'+p.margin+'</div>';
+      html+='<a href="https://www.etsy.com/uk/search?q='+k4+'" target="_blank" style="display:inline-block;margin-top:4px;font-size:10px;color:var(--ol);text-decoration:none;border:1px solid var(--olbr);border-radius:4px;padding:2px 7px;font-family:Jost,sans-serif;font-weight:600">See on Etsy</a>';
+      html+='</div></div>';
+    }
+    document.getElementById('margin-opps').innerHTML=html;
+
+  }catch(e){
+    var msg=e&&e.message?e.message:(typeof e==='string'?e:'AI response error — check Groq key');
+    document.getElementById('sell-now').innerHTML='<p style="color:var(--rd);font-size:13px">Could not load: '+msg+'</p>';
+    document.getElementById('evergreen').innerHTML='<p style="color:var(--mu);font-size:13px">Run a keyword scan above to find opportunities.</p>';
+    document.getElementById('seasonal').innerHTML='<p style="color:var(--mu);font-size:13px">Loading failed.</p>';
+    document.getElementById('margin-opps').innerHTML='<p style="color:var(--mu);font-size:13px">Loading failed.</p>';
+  }
+}
+
+// ── Trending Keywords ──
+async function loadTrending(){
+  document.getElementById('trending-keywords').innerHTML='<div class="loading-row"><div class="spin"></div>Analysing trends...</div>';
+  try{
+    var d=await callAI('15 fastest rising Etsy keywords right now 2025. Seasonal events, viral trends, gift occasions. Return JSON only: {"trending":[{"keyword":"personalised dog mug","growth":"+340%","reason":"Viral pet gift trend on TikTok","category":"viral","urgency":"list now","opportunity":"Low"},{"keyword":"mental health awareness gift","growth":"+180%","reason":"Rising awareness culture","category":"viral","urgency":"rising","opportunity":"Medium"}]}');
+    var items=d.trending||[];
+    if(!items.length){document.getElementById('trending-keywords').innerHTML='<p style="color:var(--mu);font-size:13px">No data.</p>';return;}
+    var html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">';
+    for(var i=0;i<items.length;i++){
+      var item=items[i];
+      var uc=item.urgency==='list now'?'var(--rd)':item.urgency==='rising'?'var(--or)':'var(--bl)';
+      var oc=item.opportunity==='Low'?'var(--gn)':item.opportunity==='Medium'?'var(--gd)':'var(--rd)';
+      var catIcon=item.category==='viral'?'🔥':item.category==='seasonal'?'📅':'🌱';
+      html+='<div class="card2" style="cursor:pointer" onclick="document.getElementById(\'dash-kw\').value=\''+item.keyword.replace(/'/g,"\\'")+'\';quickScan()">';
+      html+='<div style="display:flex;justify-content:space-between;margin-bottom:5px">';
+      html+='<span style="font-weight:700;font-size:13px">'+catIcon+' '+item.keyword+'</span>';
+      html+='<span style="color:var(--gn);font-weight:700;font-size:12px;font-family:DM Mono,monospace">'+item.growth+'</span></div>';
+      html+='<div style="font-size:11px;color:var(--mu);margin-bottom:6px">'+item.reason+'</div>';
+      html+='<div style="display:flex;gap:8px">';
+      html+='<span style="font-size:10px;font-weight:700;color:'+uc+'">'+item.urgency.toUpperCase()+'</span>';
+      html+='<span style="font-size:10px;color:'+oc+'">'+item.opportunity+' comp</span></div>';
+      html+='<div style="font-size:10px;color:var(--mu2);margin-top:4px">Click to scan instantly</div>';
+      html+='</div>';
+    }
+    html+='</div>';
+    document.getElementById('trending-keywords').innerHTML=html;
+  }catch(e){
+    document.getElementById('trending-keywords').innerHTML='<p style="color:var(--mu);font-size:13px">'+e.message+'</p>';
+  }
+}
+
+// ── Recent Workspace ──
+async function loadRecentWorkspace(){
+  try{
+    var rows=await dbSelect('workspace','owner_id=eq.'+SESSION.userId+'&order=created_at.desc&limit=5');
+    if(!rows||!rows.length)return;
+    var html='';
+    var sc={'launch':'status-launch','test':'status-test','watch':'status-watch','avoid':'status-avoid'};
+    for(var i=0;i<rows.length;i++){
+      var r=rows[i];
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--b1)">';
+      html+='<span style="font-weight:600;font-size:14px">'+(r.niche||'Untitled')+'</span>';
+      html+='<span class="'+(sc[r.status]||'status-watch')+'">'+(r.status||'watch')+'</span></div>';
+    }
+    document.getElementById('recent-workspace').innerHTML=html;
+  }catch(e){}
+}
+
+// ── Quick Scan ──
+function quickScanKw(kw){document.getElementById('dash-kw').value=kw;quickScan();}
+async function quickScan(){
+  var kw=document.getElementById('dash-kw').value.trim();
+  if(!kw){alert('Please type a keyword first');return;}
+  var res=document.getElementById('scan-result');
+  res.innerHTML='<div class="card"><div class="loading-row"><div class="spin"></div>Scanning "'+kw+'"...</div></div>';
+  try{
+    var d=await callAI('Analyse Etsy niche "'+kw+'" for UK POD selling right now. Return JSON only: {"opportunityScore":7.5,"demandLevel":"High","competitionLevel":"Medium","verdict":"BUY IN","verdictReason":"specific reason","sweetSpot":"12-18","bestMarket":"UK","topIdea":{"product":"exact product name","platform":"Printify","design":"design brief","phrase":"key selling phrase","ukPrice":"14.99","usaPrice":"18.99","margin":"72%"},"top3Tags":["tag1","tag2","tag3"],"insight":"actionable insight"}');
+
+    var verdColors={'BUY IN':'var(--gn)','WORTH TESTING':'var(--gd)','PROCEED WITH CAUTION':'var(--or)','AVOID':'var(--rd)'};
+    var vc=verdColors[d.verdict]||'var(--gd)';
+    var sc=d.opportunityScore||7;
+    var scClass=sc>=7?'score-high':sc>=5?'score-mid':'score-low';
+    var dColor={'High':'var(--ol)','Medium':'var(--gd)','Low':'var(--rd)'}[d.demandLevel]||'var(--gd)';
+    var cColor={'Low':'var(--gn)','Medium':'var(--gd)','High':'var(--or)','Very High':'var(--rd)'}[d.competitionLevel]||'var(--gd)';
+
+    var html=platformLinks(kw);
+    html+='<div class="card-live fu">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px">';
+    html+='<div style="flex:1">';
+    html+='<div class="serif" style="font-size:28px;font-weight:600;margin-bottom:8px">'+kw+'</div>';
+    html+='<span style="background:'+vc+'18;color:'+vc+';border:1px solid '+vc+'44;border-radius:20px;padding:4px 14px;font-size:12px;font-weight:700">'+d.verdict+'</span>';
+    html+='<p style="margin-top:8px;font-size:13px;color:var(--mu)">'+d.verdictReason+'</p></div>';
+    html+='<div class="score-ring '+scClass+'">'+sc+'</div></div>';
+    html+='<div class="grid-auto" style="margin-bottom:14px">';
+    html+=sbox('Demand',d.demandLevel,dColor);
+    html+=sbox('Competition',d.competitionLevel,cColor);
+    html+=sbox('Sweet Spot','£'+d.sweetSpot,'var(--gd)');
+    html+=sbox('Best Market',d.bestMarket,'var(--bl)');
+    html+='</div>';
+    html+='<div style="background:var(--olbg);border:1px solid var(--olbr);border-radius:9px;padding:14px;margin-bottom:14px">';
+    html+='<div class="lbl" style="color:var(--ol)">TOP IDEA RIGHT NOW</div>';
+    html+='<div style="font-weight:700;font-size:15px;margin-bottom:8px">'+(d.topIdea&&d.topIdea.product||'')+'</div>';
+    html+='<div class="grid-auto">';
+    html+=sbox('Platform',d.topIdea&&d.topIdea.platform,'var(--bl)');
+    html+=sbox('UK Price','£'+(d.topIdea&&d.topIdea.ukPrice||''),'var(--gd)');
+    html+=sbox('USA Price','$'+(d.topIdea&&d.topIdea.usaPrice||''),'var(--gd)');
+    html+=sbox('Margin',d.topIdea&&d.topIdea.margin,'var(--ol)');
+    html+='</div>';
+    html+='<div style="margin-top:10px;font-size:13px;color:var(--mu)">Design: <strong>'+(d.topIdea&&d.topIdea.design||'')+'</strong></div>';
+    html+='<div style="font-size:13px;color:var(--mu)">Phrase: <em>"'+(d.topIdea&&d.topIdea.phrase||'')+'"</em></div></div>';
+    var tags=d.top3Tags||[];
+    if(tags.length){html+='<div style="margin-bottom:12px"><div class="lbl">Top Tags</div><div>';for(var i=0;i<tags.length;i++){html+=pill(tags[i]);}html+='</div></div>';}
+    html+='<p style="font-size:13px;color:var(--mu);font-style:italic">'+(d.insight||'')+'</p>';
+    html+='<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">';
+    html+='<button class="btn-olive btn-sm" onclick="window.location.href=\'opportunities.html?kw='+encodeURIComponent(kw)+'\'">Full Analysis</button>';
+    html+='<button class="btn-ghost btn-sm" onclick="saveIdea(\''+kw.replace(/'/g,"\\'")+'\',\''+d.verdict+'\')">+ Save to Workspace</button>';
+    html+='</div></div>';
+    res.innerHTML=html;
+  }catch(e){
+    res.innerHTML='<div class="card-red"><strong>Error:</strong> '+e.message+'<br><br><small>If this keeps happening, try logging out and back in.</small></div>';
+  }
+}
+
+function saveIdea(niche,verdict){
+  var status=verdict.indexOf('BUY IN')>=0?'launch':verdict.indexOf('TESTING')>=0?'test':'watch';
+  dbInsert('workspace',{niche:niche,status:status,owner_id:SESSION.userId,created_at:new Date().toISOString()})
+    .then(function(){alert('Saved to Workspace!');})
+    .catch(function(e){alert('Could not save: '+e.message);});
+}
+
+// ── Start ──
+loadDashboard();
+loadRecentWorkspace();
+loadTrending();
+</script>
+</body>
+</html>
