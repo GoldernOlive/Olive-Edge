@@ -10,18 +10,19 @@
 
 <nav class="nav">
   <div class="nav-inner">
-    <a href="dashboard.html" class="nav-logo" style="text-decoration:none">
-      <span class="sub">Golden Olive</span>
-      <span class="main">Olive <span>Edge</span></span>
-    </a>
+    <a href="dashboard.html" class="nav-logo" style="text-decoration:none"><span class="sub">Golden Olive</span><span class="main">Olive <span>Edge</span></span></a>
     <div class="nav-links">
       <a href="dashboard.html" class="nav-link">Dashboard</a>
-      <a href="opportunities.html" class="nav-link active">Opportunities</a>
-      <a href="scanner.html" class="nav-link">Scanner</a>
-      <a href="trends.html" class="nav-link">Trends</a>
+      <div class="nav-drop" id="drop-research">
+        <button class="nav-drop-btn active" id="drop-research-btn" onclick="toggleDrop('drop-research')">Research <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5L5 6.5L8 3.5"/></svg></button>
+        <div class="nav-drop-menu"><a href="opportunities.html" class="nav-drop-menu-link active">🔥 Opportunities</a><a href="scanner.html" class="nav-drop-menu-link">🔍 Scanner</a><a href="trend-velocity.html" class="nav-drop-menu-link">⚡ Trend Velocity</a><a href="global-arbitrage.html" class="nav-drop-menu-link">🌍 Global Arbitrage</a></div>
+      </div>
+      <div class="nav-drop" id="drop-create">
+        <button class="nav-drop-btn" id="drop-create-btn" onclick="toggleDrop('drop-create')">Create <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5L5 6.5L8 3.5"/></svg></button>
+        <div class="nav-drop-menu"><a href="listing-generator.html" class="nav-drop-menu-link">✍️ Listing Writer</a><a href="listing-auditor.html" class="nav-drop-menu-link">🔎 Listing Auditor</a></div>
+      </div>
+      <a href="trends.html" class="nav-link">Visual Trends</a>
       <a href="suppliers.html" class="nav-link">Suppliers</a>
-      <a href="listing-generator.html" class="nav-link">Listing Writer</a>
-      <a href="listing-auditor.html" class="nav-link">Auditor</a>
       <a href="workspace.html" class="nav-link">Workspace</a>
     </div>
     <div class="nav-user">
@@ -30,6 +31,7 @@
     </div>
   </div>
 </nav>
+
 
 <div class="page">
   <div class="fu">
@@ -131,10 +133,17 @@ function platformLinks(kw){
 
 // ── API Calls ──
 async function callAI(prompt){
-  var r=await fetch('/api/groq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
-  var d=await r.json();
-  if(!r.ok)throw new Error(d.error||'AI error');
-  return d;
+  try{
+    var r=await fetch('/api/groq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
+    var text=await r.text();
+    var d;
+    try{d=JSON.parse(text);}catch(pe){throw new Error('Parse error: '+text.slice(0,80));}
+    if(!r.ok){
+      var errMsg=typeof d.error==='object'?(d.error.message||JSON.stringify(d.error)):(d.error||'Server error '+r.status);
+      throw new Error(errMsg);
+    }
+    return d;
+  }catch(fe){throw fe;}
 }
 
 async function getMarketData(kw){
