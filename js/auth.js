@@ -49,6 +49,7 @@ const NAV_ITEMS = [
   { href: 'trends.html',        label: '🎨 Trends' },
   { href: 'suppliers.html',     label: '💰 Suppliers' },
   { href: 'listing-generator.html', label: '✍️ Listing Writer' },
+  { href: 'listing-auditor.html',   label: '🔎 Auditor' },
   { href: 'workspace.html',     label: '📋 Workspace' },
 ];
 
